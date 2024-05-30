@@ -1,8 +1,10 @@
+use std::{thread::sleep, time::Duration};
+
 use anyhow::Result;
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    http::StatusCode,
+    response::{IntoResponse, Redirect},
     routing::{get, post},
     Json, Router,
 };
@@ -40,8 +42,6 @@ struct RowData {
 enum MyError {
     #[error("error with database: {0}")]
     Database(#[from] sqlx::Error),
-    #[error("not a valid url: {0}")]
-    BadUrl(String),
     #[error("not found url with id: {0}")]
     NotFound(String),
 }
@@ -52,7 +52,6 @@ impl IntoResponse for MyError {
             MyError::Database(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response()
             }
-            MyError::BadUrl(_) => (StatusCode::BAD_REQUEST, self.to_string()).into_response(),
             MyError::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()).into_response(),
         }
     }
@@ -88,7 +87,7 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/", post(shortten_url_handler))
-        .route("/:url_id}", get(redirect_handler))
+        .route("/:url_id", get(redirect_handler))
         .with_state(state);
 
     let addr = "0.0.0.0:3000";
@@ -115,12 +114,7 @@ async fn redirect_handler(
         .await;
 
     match result {
-        Ok(row) => {
-            let mut headers = HeaderMap::new();
-            let value = row.url.parse().map_err(|_| MyError::BadUrl(row.url))?;
-            headers.insert("location", value);
-            Ok((StatusCode::PERMANENT_REDIRECT, headers))
-        }
+        Ok(row) => Ok(Redirect::to(&row.url)),
         Err(e) => {
             warn!("Got an error while fetching url {}", e);
             Err(MyError::NotFound(url_id))
@@ -149,6 +143,7 @@ async fn shortten_url(url: &str, state: &AppState) -> Result<String, MyError> {
     "#;
 
     loop {
+        //let url_id = "111111";
         let url_id = nanoid!(6);
         let data: std::result::Result<RowData, sqlx::Error> = sqlx::query_as(sql)
             .bind(&url_id)
@@ -159,6 +154,7 @@ async fn shortten_url(url: &str, state: &AppState) -> Result<String, MyError> {
             Ok(id) => return Ok(id),
             Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
                 warn!("duplicate key {} will try again.", url_id);
+                sleep(Duration::from_millis(200));
             }
             Err(e) => {
                 error!("Got an error while insert url id and url {}", e);
