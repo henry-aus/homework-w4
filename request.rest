@@ -1,0 +1,14 @@
+# Request the short url
+
+###
+POST   http://localhost:3000
+Content-Type: application/json
+
+{
+
+    "origin_url": "unrecognized"
+
+}
+
+###
+GET http://localhost:3000/2222

@@ -8,9 +8,11 @@ use tokio_util::codec::{Framed, LinesCodec};
 
 use futures::SinkExt;
 use std::fmt;
+use tracing::error;
 //use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{info, level_filters::LevelFilter};
+use tracing_subscriber::{fmt::Layer, layer::SubscriberExt, util::SubscriberInitExt, Layer as _};
 
 const CHANNEL_BUFFER_SIZE: usize = 1024;
 
@@ -97,20 +99,24 @@ impl State {
     }
 }
 
-#[warn(unreachable_code)]
 #[tokio::main]
 async fn main() -> Result<()> {
+    let layer = Layer::new().with_filter(LevelFilter::INFO);
+    tracing_subscriber::registry().with(layer).init();
+
     let addr = "0.0.0.0:8080";
     let listener = TcpListener::bind(addr).await?;
-    let state = Arc::new(State::default());
 
+    info!("Server started on {}", addr);
+
+    let state = Arc::new(State::default());
     loop {
         let (stream, _) = listener.accept().await?;
         let state = state.clone();
         tokio::spawn(async move {
             // a function to handle the incoming connection
             if let Err(e) = process_connection(stream, state).await {
-                println!("Error: {}", e);
+                error!("Process client connection error. {}", e);
             }
         });
     }
@@ -128,7 +134,7 @@ async fn process_connection(stream: TcpStream, state: Arc<State>) -> Result<()> 
         Some(result) if result.is_ok() => result.unwrap(),
         // We didn't get a line so we return early here.
         _ => {
-            //tracing::error!("Failed to get username from {}. Client disconnected.", addr);
+            error!("Failed to get username. Client disconnected.");
             return Ok(());
         }
     };
